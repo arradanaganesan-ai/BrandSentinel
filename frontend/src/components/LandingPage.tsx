@@ -52,7 +52,8 @@ type PreviewState =
       status: 'ready';
       items: any[];
       metrics: any;
-      conflictCount: number;
+      /** null = the conflicts request failed, so the count is genuinely unknown. */
+      conflictCount: number | null;
       finding: any | null;
       findingTitle: string;
     };
@@ -69,7 +70,8 @@ const ProductPreview: React.FC<{ onEnterApp: () => void; sessionReady: boolean }
       const [items, metrics, conflicts] = await Promise.all([
         api.getContentItems(),
         api.getDriftMetrics().catch(() => null),
-        api.getConflicts().catch(() => []),
+        // null (not []) on failure so a failed request can't render as "0 conflicts"
+        api.getConflicts().catch(() => null),
       ]);
 
       // Drill into one real finding so the preview shows genuine evidence.
@@ -99,7 +101,7 @@ const ProductPreview: React.FC<{ onEnterApp: () => void; sessionReady: boolean }
         status: 'ready',
         items: Array.isArray(items) ? items : [],
         metrics,
-        conflictCount: Array.isArray(conflicts) ? conflicts.length : 0,
+        conflictCount: conflicts === null ? null : Array.isArray(conflicts) ? conflicts.length : 0,
         finding,
         findingTitle,
       });
@@ -190,7 +192,7 @@ const ProductPreview: React.FC<{ onEnterApp: () => void; sessionReady: boolean }
               </div>
               <p className="text-sm font-semibold text-ink">Live preview unavailable</p>
               <p className="text-xs text-ink-muted mt-1 max-w-sm">
-                The BrandSentinel API did not respond ({state.message}). Start the backend to
+                The BrandSentinel API request failed ({state.message}). Start the backend to
                 load real workspace data — nothing on this page is fabricated.
               </p>
               <Button variant="secondary" size="sm" className="mt-4" onClick={load}>
@@ -226,10 +228,19 @@ const ProductPreview: React.FC<{ onEnterApp: () => void; sessionReady: boolean }
                   </p>
                   <p
                     className={`text-xl font-mono font-semibold mt-1 ${
-                      state.conflictCount > 0 ? 'text-amber-300' : 'text-teal-400'
+                      state.conflictCount === null
+                        ? 'text-ink-faint'
+                        : state.conflictCount > 0
+                          ? 'text-amber-300'
+                          : 'text-teal-400'
                     }`}
+                    title={
+                      state.conflictCount === null
+                        ? 'Conflict count unavailable — the conflicts request failed'
+                        : undefined
+                    }
                   >
-                    {state.conflictCount}
+                    {state.conflictCount === null ? '—' : state.conflictCount}
                   </p>
                 </div>
               </div>

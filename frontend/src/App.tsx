@@ -21,7 +21,7 @@ import { AuditTrailPage } from './pages/AuditTrailPage';
 import { TeamPermissionsPage } from './pages/TeamPermissionsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
-import { api } from './api/client';
+import { api, API_BASE } from './api/client';
 import { User, DemoUser } from './types';
 
 const ROUTE_HASH = '#/app';
@@ -41,6 +41,7 @@ const Shell: React.FC = () => {
   const [isVisualModalOpen, setIsVisualModalOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
+  const [appErrorIsConnection, setAppErrorIsConnection] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const toast = useToast();
@@ -93,6 +94,7 @@ const Shell: React.FC = () => {
           const me = await api.getMe();
           setCurrentUser(me);
           setAppError(null);
+          setAppErrorIsConnection(false);
           loadCounts();
           return;
         } catch {
@@ -110,11 +112,18 @@ const Shell: React.FC = () => {
         localStorage.setItem('brandsentinel_token', res.access_token);
         setCurrentUser(res.user);
         setAppError(null);
+        setAppErrorIsConnection(false);
         loadCounts();
       }
     } catch (err: any) {
       console.error('Failed to initialize session:', err);
       setAppError(err.message);
+      // Suggest "backend unreachable" only when the failure actually looks like
+      // one: status 0 = fetch() rejected, 5xx = server/proxy unavailable.
+      // 4xx are application-level (bad credentials, RBAC) — not a connectivity
+      // problem, so we must not blame the backend being down for those.
+      const status = err?.status;
+      setAppErrorIsConnection(status === 0 || (typeof status === 'number' && status >= 500));
     } finally {
       // The landing preview may fetch only after auth is settled (success or failure).
       setSessionReady(true);
@@ -196,10 +205,15 @@ const Shell: React.FC = () => {
                 className="mb-5 rounded-lg border border-red-800/50 bg-red-950 px-4 py-3 text-xs text-red-300 flex items-start gap-2"
               >
                 <span className="font-semibold">
-                  Backend connection notice:
+                  {appErrorIsConnection ? 'Backend connection notice:' : 'Session notice:'}
                 </span>
                 <span className="flex-1">
-                  {appError}. Ensure the backend is running on http://127.0.0.1:8000.
+                  <span className="block">{appError}</span>
+                  {appErrorIsConnection && (
+                    <span className="block opacity-80 mt-0.5">
+                      Check that the backend is reachable at API base &quot;{API_BASE}&quot;.
+                    </span>
+                  )}
                 </span>
                 <button
                   onClick={initializeSession}

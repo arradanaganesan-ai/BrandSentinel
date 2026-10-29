@@ -1,8 +1,93 @@
-const API_BASE = '/api';
+/**
+ * API base URL.
+ *
+ * Defaults to the relative '/api' prefix, which is what both the Vite dev
+ * proxy and the production nginx `location /api/` block resolve. Set
+ * `VITE_API_BASE_URL` at build time when the frontend is hosted separately
+ * from the backend (e.g. "https://api.example.com/api").
+ *
+ * A trailing slash is stripped so that endpoints (which always start with
+ * "/") concatenate cleanly.
+ */
+const ENV_BASE =
+  typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_BASE_URL : undefined;
+export const API_BASE = (ENV_BASE && ENV_BASE.trim() !== '' ? ENV_BASE.trim() : '/api').replace(
+  /\/+$/,
+  ''
+);
+
+/** Raised for any non-2xx or unparsable response. Carries the HTTP context. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly detail: string;
+  readonly endpoint: string;
+
+  constructor(message: string, status: number, statusText: string, detail: string, endpoint: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.statusText = statusText;
+    this.detail = detail;
+    this.endpoint = endpoint;
+  }
+}
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('brandsentinel_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * Reads a Response body exactly ONCE.
+ *
+ * A Response body is a one-shot stream: after `text()` (or `json()`) has been
+ * called, any further read throws TypeError "body stream already read". This
+ * helper makes the single read and degrades to an empty string if the stream
+ * is already consumed, so callers never attempt a second read.
+ */
+async function readBodyOnce(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Pulls the most useful error detail out of an already-read body.
+ * Handles FastAPI JSON (`{detail}`), `{message}`, plain JSON, and
+ * non-JSON bodies such as an nginx HTML error page.
+ */
+function extractDetail(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed === 'string') return parsed;
+    if (parsed && typeof parsed === 'object') {
+      const candidate = (parsed as any).detail ?? (parsed as any).message;
+      if (typeof candidate === 'string') return candidate;
+      // FastAPI validation errors: [{loc, msg, type}, ...]
+      if (Array.isArray(candidate)) {
+        return candidate
+          .map((e: any) =>
+            e && typeof e === 'object' && e.msg
+              ? `${Array.isArray(e.loc) ? e.loc.join('.') : 'body'}: ${e.msg}`
+              : JSON.stringify(e)
+          )
+          .join('; ');
+      }
+      if (candidate && typeof candidate === 'object') return JSON.stringify(candidate);
+      return JSON.stringify(parsed);
+    }
+    return String(parsed);
+  } catch {
+    // Non-JSON body (HTML/text error page) — surface a short excerpt.
+    const flat = trimmed.replace(/\s+/g, ' ');
+    return flat.length > 240 ? `${flat.slice(0, 240)}…` : flat;
+  }
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -12,23 +97,64 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     ...(options.headers || {}),
   };
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    let errorDetail = 'Request failed';
-    try {
-      const err = await response.json();
-      errorDetail = err.detail || err.message || JSON.stringify(err);
-    } catch {
-      errorDetail = await response.text();
-    }
-    throw new Error(errorDetail);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (err: any) {
+    // fetch() itself rejected: offline, DNS, blocked by CORS, connection reset.
+    throw new ApiError(
+      `Network error contacting ${endpoint}: ${err?.message || 'request failed'}`,
+      0,
+      '',
+      err?.message || '',
+      endpoint
+    );
   }
 
-  return response.json();
+  // Single read of the body — shared by both the error and success paths.
+  const raw = await readBodyOnce(response);
+
+  if (!response.ok) {
+    const detail = extractDetail(raw);
+    const label = response.statusText ? `${response.status} ${response.statusText}` : `${response.status}`;
+    const message = detail ? `HTTP ${label} — ${detail}` : `HTTP ${label} — no response body`;
+    throw new ApiError(message, response.status, response.statusText, detail, endpoint);
+  }
+
+  // 204 No Content is a legitimate empty success.
+  if (response.status === 204) return undefined as unknown as T;
+
+  const body = raw.trim();
+  if (body === '') {
+    throw new ApiError(
+      `HTTP ${response.status} ${
+        response.statusText || 'OK'
+      } — expected JSON but the response body was empty`,
+      response.status,
+      response.statusText,
+      '',
+      endpoint
+    );
+  }
+
+  try {
+    return JSON.parse(body) as T;
+  } catch (err: any) {
+    const flat = body.replace(/\s+/g, ' ');
+    const excerpt = flat.length > 240 ? `${flat.slice(0, 240)}…` : flat;
+    throw new ApiError(
+      `HTTP ${response.status} ${
+        response.statusText || 'OK'
+      } — response was not valid JSON: ${excerpt}`,
+      response.status,
+      response.statusText,
+      excerpt,
+      endpoint
+    );
+  }
 }
 
 export const api = {
@@ -127,13 +253,35 @@ export const api = {
   getBrandAssets: () => request<any[]>('/visual/assets'),
   inspectImage: async (formData: FormData) => {
     const headers = { ...getAuthHeader() };
-    const res = await fetch(`${API_BASE}/visual/inspect-image`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/visual/inspect-image`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+    } catch (err: any) {
+      throw new ApiError(
+        `Network error contacting /visual/inspect-image: ${err?.message || 'request failed'}`,
+        0,
+        '',
+        err?.message || '',
+        '/visual/inspect-image'
+      );
+    }
+    const raw = await readBodyOnce(res);
+    if (!res.ok) {
+      const detail = extractDetail(raw);
+      const label = res.statusText ? `${res.status} ${res.statusText}` : `${res.status}`;
+      throw new ApiError(
+        detail ? `HTTP ${label} — ${detail}` : `HTTP ${label} — no response body`,
+        res.status,
+        res.statusText,
+        detail,
+        '/visual/inspect-image'
+      );
+    }
+    return JSON.parse(raw);
   },
 
   // Team & Permissions

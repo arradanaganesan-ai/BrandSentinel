@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 import clsx from 'clsx';
+import { API_BASE } from '../api/client';
 
 /* ────────────────────────────────────────────────────────────────
    Buttons
@@ -269,31 +270,41 @@ export const ErrorState: React.FC<{
   message = 'We could not reach the BrandSentinel API.',
   onRetry,
   className,
-}) => (
-  <div
-    role="alert"
-    className={clsx(
-      'rounded-lg border border-red-800/40 bg-red-950 px-4 py-3 text-xs text-red-300 flex items-start gap-2',
-      className
-    )}
-  >
-    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-    <div className="flex-1">
-      <p className="font-semibold">{message}</p>
-      <p className="text-[11px] opacity-80 mt-0.5">
-        Ensure the backend is running on http://127.0.0.1:8000.
-      </p>
+}) => {
+  // `message` is the ApiError text. Client errors (HTTP 4xx) mean the API
+  // answered and rejected the request (auth/RBAC/validation) — telling the
+  // user to "start the backend" would be false, so we only suggest a
+  // connectivity problem for network failures and 5xx responses.
+  const isClientError = /^HTTP 4\d\d/.test(message);
+
+  return (
+    <div
+      role="alert"
+      className={clsx(
+        'rounded-lg border border-red-800/40 bg-red-950 px-4 py-3 text-xs text-red-300 flex items-start gap-2',
+        className
+      )}
+    >
+      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+      <div className="flex-1">
+        <p className="font-semibold">{message}</p>
+        <p className="text-[11px] opacity-80 mt-0.5">
+          {isClientError
+            ? 'The API responded but refused this request — check the session role and try again.'
+            : `Check that the backend is reachable at API base "${API_BASE}".`}
+        </p>
+      </div>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="text-[11px] font-semibold underline underline-offset-2 hover:text-red-200"
+        >
+          Retry
+        </button>
+      )}
     </div>
-    {onRetry && (
-      <button
-        onClick={onRetry}
-        className="text-[11px] font-semibold underline underline-offset-2 hover:text-red-200"
-      >
-        Retry
-      </button>
-    )}
-  </div>
-);
+  );
+};
 
 /* ────────────────────────────────────────────────────────────────
    Modal
