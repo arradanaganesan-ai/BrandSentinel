@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: brandsentinel-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: brandsentinel
+      POSTGRES_PASSWORD: brandsentinel_password_2026
+      POSTGRES_DB: brandsentinel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brandsentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: brandsentinel-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://brandsentinel:brandsentinel_password_2026@db:5432/brandsentinel"
+      SECRET_KEY: "brandsentinel-production-grade-key-docker-2026"
+      AI_PROVIDER: "DEMO"
+      DEMO_MODE: "true"
+      DISABLE_SQLALCHEMY_CEXT: "1"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: brandsentinel-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:

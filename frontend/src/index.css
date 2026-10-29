@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --ivory: #f8f4ec;
+  --ink: #251c19;
+  --vermilion: #c83232;
+  --line: #e6ddcc;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: var(--ivory);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(200, 50, 50, 0.16);
+  color: var(--ink);
+}
+
+/* ── Warm, low-contrast scrollbars ─────────────────────────────── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ddd2bf;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c8bca6;
+  background-clip: content-box;
+}
+
+/* ── Accessible focus ───────────────────────────────────────────── */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--vermilion);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Typography helpers ─────────────────────────────────────────── */
+.display-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+}
+
+/* ── Skeleton loading ───────────────────────────────────────────── */
+.skeleton {
+  background-color: #efe8dc;
+  background-image: linear-gradient(
+    90deg,
+    rgba(239, 232, 220, 0) 0%,
+    rgba(255, 255, 255, 0.75) 50%,
+    rgba(239, 232, 220, 0) 100%
+  );
+  background-size: 400px 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+/* ── Entrance animation helper ──────────────────────────────────── */
+.reveal {
+  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.reveal-delay-1 { animation-delay: 80ms; }
+.reveal-delay-2 { animation-delay: 160ms; }
+.reveal-delay-3 { animation-delay: 240ms; }
+.reveal-delay-4 { animation-delay: 320ms; }
+
+/* ── Scroll-reveal (IntersectionObserver toggles .is-visible) ───── */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+  }
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+}
